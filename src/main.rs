@@ -35,7 +35,10 @@ fn expand(root: &mut PathBuf, reading_mod_name: OsString, reading_lib: bool) -> 
             }
             _ => false,
         };
-        if tokens.next() != Some("mod") {
+        let head = tokens.next();
+        if matches!(head, Some("//") | Some("///")) {
+            continue;
+        } else if head != Some("mod") {
             writeln!(res, "{line}").with_context(|| format!("failed to write line"))?;
             continue;
         }
