@@ -13,6 +13,9 @@ use std::{
 struct Args {
     crate_path: String,
 
+    #[arg(short, long, value_name = "INPUT")]
+    input: Option<PathBuf>,
+
     #[arg(short, long, value_name = "OUTPUT")]
     output: Option<PathBuf>,
 }
@@ -152,6 +155,12 @@ fn main() -> Result<()> {
         Some(output) => BufWriter::new(Box::new(File::create(output)?)),
         None => BufWriter::new(Box::new(std::io::stdout().lock())),
     };
+    if let Some(input) = args.input {
+        for line in BufReader::new(File::open(input)?).lines() {
+            writeln!(output, "{}", line?)?;
+        }
+        writeln!(output)?;
+    }
     writeln!(
         output,
         "pub mod {} {{",
