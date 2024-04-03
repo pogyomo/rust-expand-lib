@@ -4,7 +4,7 @@ use std::{
     ffi::OsString,
     fmt::Write as _,
     fs::{canonicalize, File},
-    io::{BufRead as _, BufReader, Write as _},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::{Component, PathBuf},
 };
 
@@ -145,24 +145,23 @@ fn main() -> Result<()> {
     path_to_src_root.push("src");
     path_to_src_root.push("lib.rs");
     let expanded = expand(&mut path_to_src_root, OsString::from(""), true)?;
-    if let Some(output_path) = args.output {
-        let mut output = File::create(output_path)?;
-        writeln!(
-            output,
-            "pub mod {} {{",
-            crate_name
-                .to_str()
-                .unwrap()
-                .chars()
-                .map(|c| if c == '-' { '_' } else { c })
-                .collect::<String>()
-        )?;
-        for line in expanded.lines() {
-            writeln!(output, "    {}", line)?;
-        }
-        writeln!(output, "}}")?;
-    } else {
-        print!("{expanded}");
+    let mut output: BufWriter<Box<dyn Write>> = match args.output {
+        Some(output) => BufWriter::new(Box::new(File::create(output)?)),
+        None => BufWriter::new(Box::new(std::io::stdout().lock())),
+    };
+    writeln!(
+        output,
+        "pub mod {} {{",
+        crate_name
+            .to_str()
+            .unwrap()
+            .chars()
+            .map(|c| if c == '-' { '_' } else { c })
+            .collect::<String>()
+    )?;
+    for line in expanded.lines() {
+        writeln!(output, "    {}", line)?;
     }
+    writeln!(output, "}}")?;
     Ok(())
 }
