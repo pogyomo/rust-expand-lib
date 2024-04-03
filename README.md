@@ -14,5 +14,5 @@ $ cargo install --path rust-expand-lib
 ## TODO
 
 - [ ] remove `#[cfg(test)]` attached function/module
-- [ ] remove comments
+- [x] remove comments
 - [ ] add option to remove unnecessary spaces and newlines to shrink output file size
