@@ -1,8 +1,12 @@
 [package]
 name = "rust-expand-lib"
 version = "0.1.0"
+description = "A simple tool to expand a lib crate into one file"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.81"
 clap = { version = "4.5.4", features = ["derive"] }
+quote = "1.0"
+syn = { version = "2.0", features = ["extra-traits", "parsing", "printing", "full"] }
+tempfile = "3"
