@@ -10,6 +10,7 @@ use std::{
 };
 use syn::{parse_file, Attribute, Expr, Ident, Item, Lit, Visibility};
 use tempfile::NamedTempFile;
+use toml::{from_str, Table};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -200,6 +201,33 @@ fn normalize_crate_name(name: &str) -> String {
         .collect()
 }
 
+/// Get crate name from Cargo.toml, or from given path if failed.
+fn fetch_crate_name(crate_path: &mut PathBuf) -> Result<String> {
+    crate_path.push("Cargo.toml");
+    if let Some(crate_name) = try_read_crate_name_from_carto_toml(&crate_path) {
+        Ok(crate_name)
+    } else {
+        crate_path.pop();
+        crate_path
+            .file_name()
+            .context("failed to extract crate name from path")?
+            .to_str()
+            .map(|name| name.to_string())
+            .context("invalid utf-8 encoded crate name")
+    }
+}
+
+/// Attempt to read package.name from Cargo.toml.
+fn try_read_crate_name_from_carto_toml(cargo_toml_path: &PathBuf) -> Option<String> {
+    let content = read_to_string(cargo_toml_path).ok()?;
+    let toml = from_str::<Table>(&content).ok()?;
+    toml.get("package")?
+        .as_table()?
+        .get("name")?
+        .as_str()
+        .map(|name| name.to_string())
+}
+
 fn main() -> Result<()> {
     let args = Args::parse();
 
@@ -223,16 +251,12 @@ fn main() -> Result<()> {
                 read_to_string(path).context("failed to read input file")?
             )?;
         }
-        let path = PathBuf::from(args.crate_path);
-        let crate_name = path
-            .file_name()
-            .context("failed to extract crate name from path")?
-            .to_str()
-            .context("invalid utf-8 encoded crate name")?;
+        let mut path = PathBuf::from(args.crate_path);
+        let crate_name = fetch_crate_name(&mut path)?;
         writeln!(
             code,
             "pub mod {} {{ {expanded} }}",
-            normalize_crate_name(crate_name)
+            normalize_crate_name(&crate_name)
         )?;
         if args.format {
             format_code(code).context("failed to format generated code")?
