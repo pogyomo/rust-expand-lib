@@ -136,7 +136,9 @@ fn item_to_string(
         }
         if attr.path().is_ident("cfg") && remove_test {
             let Ok(args) = attr.parse_args::<Ident>() else {
-                writeln!(res, "{}", attr_to_string(remove_doc_comment, attr)?)?;
+                let attr = attr_to_string(remove_doc_comment, attr)
+                    .context(format!("failed to convert attribute of module {}", name))?;
+                writeln!(res, "{}", attr)?;
                 continue;
             };
             if args.to_string() == "test" {
