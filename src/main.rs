@@ -3,9 +3,9 @@ use clap::Parser;
 use quote::ToTokens;
 use std::{
     fmt::Write as _,
-    fs::{read_to_string, File},
+    fs::{self, File},
     io::{stdout, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
 };
 use syn::{parse_file, Attribute, Expr, Ident, Item, Lit, Visibility};
@@ -38,6 +38,14 @@ struct Args {
     output: Option<PathBuf>,
 }
 
+fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
+    let path = path.as_ref().canonicalize().context(format!(
+        "failed to canonicalize {}",
+        path.as_ref().display()
+    ))?;
+    fs::read_to_string(&path).context(format!("failed to read content of {}", path.display()))
+}
+
 /// Expand modules in `path`/`name.rs` and return it as string.
 fn expand(
     name: &str,
@@ -49,8 +57,7 @@ fn expand(
     let content = {
         path.push(name);
         path.set_extension("rs");
-        let content = read_to_string(&path)
-            .context(format!("failed to read content of {}", path.display()))?;
+        let content = read_to_string(&path)?;
         path.pop();
         content
     };
@@ -169,10 +176,14 @@ fn item_to_string(
 
 /// Format given rust source code using rustfmt.
 fn format_code(code: String) -> Result<String> {
-    let mut file = NamedTempFile::new()?;
-    file.write_all(code.as_bytes())?;
-    Command::new("rustfmt").arg(file.path()).output()?;
-    Ok(read_to_string(file.path())?)
+    let mut file = NamedTempFile::new().context("failed to create temporary file")?;
+    file.write_all(code.as_bytes())
+        .context("failed to write unformatted code to temporary file")?;
+    Command::new("rustfmt")
+        .arg(file.path())
+        .output()
+        .context("failed to format code")?;
+    Ok(read_to_string(file.path()).context("failed to read formatted code from temporary file")?)
 }
 
 /// Convert crate name that can be used in source code.
