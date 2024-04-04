@@ -57,7 +57,8 @@ fn expand(
     let content = {
         path.push(name);
         path.set_extension("rs");
-        let content = read_to_string(&path)?;
+        let content = read_to_string(&path)
+            .context(format!("failed to read content of {}", path.display()))?;
         path.pop();
         content
     };
@@ -68,7 +69,9 @@ fn expand(
         writeln!(res, "{shebang}")?;
     }
     for attr in ast.attrs {
-        writeln!(res, "{}", attr_to_string(remove_doc_comment, attr)?)?;
+        let attr = attr_to_string(remove_doc_comment, attr)
+            .context(format!("failed to convert attribute of module {}", name))?;
+        writeln!(res, "{}", attr)?;
     }
     for item in ast.items {
         let string = item_to_string(
@@ -78,7 +81,8 @@ fn expand(
             remove_test,
             remove_doc_comment,
             item,
-        )?;
+        )
+        .context(format!("failed to convert item of module {}", name))?;
         writeln!(res, "{}", string)?;
     }
     Ok(res)
@@ -94,12 +98,10 @@ fn attr_to_string(remove_doc_comment: bool, attr: Attribute) -> Result<String> {
                 .parse_args::<Expr>()
                 .context("failed to parse argument of doc comment")?;
             let Expr::Lit(lit) = expr else {
-                return Err(anyhow!("failed to parse argument of doc comment")
-                    .context("unexpected argument type of doc comment"));
+                bail!("unexpected argument type of doc comment");
             };
             let Lit::Str(str) = lit.lit else {
-                return Err(anyhow!("failed to parse argument of doc comment")
-                    .context("unexpected argument type of doc comment"));
+                bail!("unexpected argument type of doc comment");
             };
             Ok(str.value())
         }
@@ -127,7 +129,9 @@ fn item_to_string(
     let mut res = String::new();
     for attr in module.attrs {
         if !remove_test && !remove_doc_comment {
-            writeln!(res, "{}", attr_to_string(remove_doc_comment, attr)?)?;
+            let attr = attr_to_string(remove_doc_comment, attr)
+                .context(format!("failed to convert attribute of module {}", name))?;
+            writeln!(res, "{}", attr)?;
             continue;
         }
         if attr.path().is_ident("cfg") && remove_test {
@@ -138,17 +142,22 @@ fn item_to_string(
             if args.to_string() == "test" {
                 return Ok(String::new());
             } else {
-                writeln!(res, "{}", attr_to_string(remove_doc_comment, attr)?)?;
+                let attr = attr_to_string(remove_doc_comment, attr)
+                    .context(format!("failed to convert attribute of module {}", name))?;
+                writeln!(res, "{}", attr)?;
             }
         } else if attr.path().is_ident("doc") && remove_doc_comment {
             continue;
         } else {
-            writeln!(res, "{}", attr_to_string(remove_doc_comment, attr)?)?;
+            let attr = attr_to_string(remove_doc_comment, attr)
+                .context(format!("failed to convert attribute of module {}", name))?;
+            writeln!(res, "{}", attr)?;
         }
     }
     if let Some(mod_content) = module.content {
         for item in mod_content.1 {
-            let string = item_to_string(name, path, false, remove_test, remove_doc_comment, item)?;
+            let string = item_to_string(name, path, false, remove_test, remove_doc_comment, item)
+                .context(format!("failed to convert item of module {}", name))?;
             writeln!(res, "{}", string)?;
         }
         return Ok(res);
@@ -159,7 +168,9 @@ fn item_to_string(
     if !expanding_lib {
         path.push(name);
     }
-    let mod_content = expand(&mod_name, path, false, remove_test, remove_doc_comment)?;
+    let mod_content = expand(&mod_name, path, false, remove_test, remove_doc_comment).context(
+        format!("failed to expand child module {} of {}", mod_name, name),
+    )?;
     if !expanding_lib {
         path.pop();
     }
@@ -204,12 +215,17 @@ fn main() -> Result<()> {
         true,
         args.remove_test,
         args.remove_doc_comment,
-    )?;
+    )
+    .context("failed to expand lib.rs")?;
 
     let code = {
         let mut code = String::new();
         if let Some(path) = args.input {
-            writeln!(code, "{}", read_to_string(path)?)?;
+            writeln!(
+                code,
+                "{}",
+                read_to_string(path).context("failed to read input file")?
+            )?;
         }
         let path = PathBuf::from(args.crate_path);
         let crate_name = path
