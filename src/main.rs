@@ -39,11 +39,12 @@ struct Args {
 }
 
 fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
-    let path = path.as_ref().canonicalize().context(format!(
-        "failed to canonicalize {}",
-        path.as_ref().display()
-    ))?;
-    fs::read_to_string(&path).context(format!("failed to read content of {}", path.display()))
+    let path = path
+        .as_ref()
+        .canonicalize()
+        .with_context(|| format!("failed to canonicalize {}", path.as_ref().display()))?;
+    fs::read_to_string(&path)
+        .with_context(|| format!("failed to read content of {}", path.display()))
 }
 
 /// Expand modules in `path`/`name.rs` and return it as string.
@@ -58,19 +59,19 @@ fn expand(
         path.push(name);
         path.set_extension("rs");
         let content = read_to_string(&path)
-            .context(format!("failed to read content of {}", path.display()))?;
+            .with_context(|| format!("failed to read content of {}", path.display()))?;
         path.pop();
         content
     };
-    let ast =
-        parse_file(&content).context(format!("failed to parse content of {}", path.display()))?;
+    let ast = parse_file(&content)
+        .with_context(|| format!("failed to parse content of {}", path.display()))?;
     let mut res = String::new();
     if let Some(shebang) = ast.shebang {
         writeln!(res, "{shebang}")?;
     }
     for attr in ast.attrs {
         let attr = attr_to_string(remove_doc_comment, attr)
-            .context(format!("failed to convert attribute of module {}", name))?;
+            .with_context(|| format!("failed to convert attribute of module {}", name))?;
         writeln!(res, "{}", attr)?;
     }
     for item in ast.items {
@@ -82,7 +83,7 @@ fn expand(
             remove_doc_comment,
             item,
         )
-        .context(format!("failed to convert item of module {}", name))?;
+        .with_context(|| format!("failed to convert item of module {}", name))?;
         writeln!(res, "{}", string)?;
     }
     Ok(res)
@@ -128,38 +129,32 @@ fn item_to_string(
     // Then, if the module is mod name { .. }, just write the content and return it.
     let mut res = String::new();
     for attr in module.attrs {
+        let string = attr_to_string(remove_doc_comment, attr.clone())
+            .with_context(|| format!("failed to convert attribute of module {}", name))?;
         if !remove_test && !remove_doc_comment {
-            let attr = attr_to_string(remove_doc_comment, attr)
-                .context(format!("failed to convert attribute of module {}", name))?;
-            writeln!(res, "{}", attr)?;
+            writeln!(res, "{string}")?;
             continue;
         }
         if attr.path().is_ident("cfg") && remove_test {
             let Ok(args) = attr.parse_args::<Ident>() else {
-                let attr = attr_to_string(remove_doc_comment, attr)
-                    .context(format!("failed to convert attribute of module {}", name))?;
-                writeln!(res, "{}", attr)?;
+                writeln!(res, "{string}")?;
                 continue;
             };
             if args.to_string() == "test" {
                 return Ok(String::new());
             } else {
-                let attr = attr_to_string(remove_doc_comment, attr)
-                    .context(format!("failed to convert attribute of module {}", name))?;
-                writeln!(res, "{}", attr)?;
+                writeln!(res, "{string}")?;
             }
         } else if attr.path().is_ident("doc") && remove_doc_comment {
             continue;
         } else {
-            let attr = attr_to_string(remove_doc_comment, attr)
-                .context(format!("failed to convert attribute of module {}", name))?;
-            writeln!(res, "{}", attr)?;
+            writeln!(res, "{string}")?;
         }
     }
     if let Some(mod_content) = module.content {
         for item in mod_content.1 {
             let string = item_to_string(name, path, false, remove_test, remove_doc_comment, item)
-                .context(format!("failed to convert item of module {}", name))?;
+                .with_context(|| format!("failed to convert item of module {}", name))?;
             writeln!(res, "{}", string)?;
         }
         return Ok(res);
@@ -170,9 +165,8 @@ fn item_to_string(
     if !expanding_lib {
         path.push(name);
     }
-    let mod_content = expand(&mod_name, path, false, remove_test, remove_doc_comment).context(
-        format!("failed to expand child module {} of {}", mod_name, name),
-    )?;
+    let mod_content = expand(&mod_name, path, false, remove_test, remove_doc_comment)
+        .with_context(|| format!("failed to expand child module {} of {}", mod_name, name))?;
     if !expanding_lib {
         path.pop();
     }
