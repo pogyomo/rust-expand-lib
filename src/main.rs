@@ -1,3 +1,6 @@
+mod item;
+
+use crate::item::remove_doc_attrs;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use quote::ToTokens;
@@ -8,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
     process::Command,
 };
-use syn::{parse_file, Attribute, Expr, Ident, Item, Lit, Visibility};
+use syn::{parse_file, Attribute, Ident, Item, Visibility};
 use tempfile::NamedTempFile;
 use toml::{from_str, Table};
 
@@ -48,6 +51,8 @@ fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
         .with_context(|| format!("failed to read content of {}", path.display()))
 }
 
+// TODO: Convert #[doc = "..."] to /// ...
+//
 /// Expand modules in `path`/`name.rs` and return it as string.
 fn expand(
     name: &str,
@@ -71,7 +76,10 @@ fn expand(
         writeln!(res, "{shebang}")?;
     }
     for attr in ast.attrs {
-        let attr = attr_to_string(remove_doc_comment, attr)
+        if attr.path().is_ident("doc") && remove_doc_comment {
+            continue;
+        }
+        let attr = attr_to_string(attr)
             .with_context(|| format!("failed to convert attribute of module {}", name))?;
         writeln!(res, "{}", attr)?;
     }
@@ -91,25 +99,8 @@ fn expand(
 }
 
 /// Convert given attribute into string.
-fn attr_to_string(remove_doc_comment: bool, attr: Attribute) -> Result<String> {
-    if attr.path().is_ident("doc") {
-        if remove_doc_comment {
-            Ok(String::new())
-        } else {
-            let expr = attr
-                .parse_args::<Expr>()
-                .context("failed to parse argument of doc comment")?;
-            let Expr::Lit(lit) = expr else {
-                bail!("unexpected argument type of doc comment");
-            };
-            let Lit::Str(str) = lit.lit else {
-                bail!("unexpected argument type of doc comment");
-            };
-            Ok(str.value())
-        }
-    } else {
-        Ok(attr.to_token_stream().to_string())
-    }
+fn attr_to_string(attr: Attribute) -> Result<String> {
+    Ok(attr.to_token_stream().to_string())
 }
 
 /// Convert given item into string.
@@ -121,8 +112,12 @@ fn item_to_string(
     remove_doc_comment: bool,
     item: Item,
 ) -> Result<String> {
+    let item = if remove_doc_comment {
+        remove_doc_attrs(item)
+    } else {
+        item
+    };
     let Item::Mod(module) = item else {
-        // TODO: remove #[doc = ...] from item when remove_doc_comment is true
         return Ok(item.to_token_stream().to_string());
     };
 
@@ -130,9 +125,9 @@ fn item_to_string(
     // Then, if the module is mod name { .. }, just write the content and return it.
     let mut res = String::new();
     for attr in module.attrs {
-        let string = attr_to_string(remove_doc_comment, attr.clone())
+        let string = attr_to_string(attr.clone())
             .with_context(|| format!("failed to convert attribute of module {}", name))?;
-        if !remove_test && !remove_doc_comment {
+        if !remove_test {
             writeln!(res, "{string}")?;
             continue;
         }
@@ -143,14 +138,9 @@ fn item_to_string(
             };
             if args.to_string() == "test" {
                 return Ok(String::new());
-            } else {
-                writeln!(res, "{string}")?;
             }
-        } else if attr.path().is_ident("doc") && remove_doc_comment {
-            continue;
-        } else {
-            writeln!(res, "{string}")?;
         }
+        writeln!(res, "{string}")?;
     }
     if let Some(mod_content) = module.content {
         for item in mod_content.1 {
